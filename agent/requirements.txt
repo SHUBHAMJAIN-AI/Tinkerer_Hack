@@ -1,0 +1,18 @@
+langchain==1.0.7
+langgraph==1.0.3
+openai>=1.68.2,<2.0.0
+fastapi>=0.115.5,<1.0.0
+uvicorn>=0.29.0,<1.0.0
+python-dotenv>=1.0.0,<2.0.0
+langgraph-cli[inmem]==0.3.3
+langchain-openai>=1.0.3
+tavily-python>=0.7.13
+langchain-tavily>=0.2.13
+
+# Redis dependencies for caching and session management
+redis>=5.0.1,<7.0.0
+hiredis>=2.2.3,<4.0.0
+requests>=2.31.0,<3.0.0
+
+# Note: langchain-redis removed due to incompatibility with langchain-core 1.0+
+# Using redis directly with custom LangChain cache implementation in utils/llm_cache.py
