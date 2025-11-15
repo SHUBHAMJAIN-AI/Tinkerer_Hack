@@ -42,7 +42,7 @@ def initialize_llm_cache() -> bool:
 
         # Initialize Redis cache for LangChain
         redis_cache = RedisCache(
-            redis_url=REDIS_URL,
+            redis_=client,
             ttl=CACHE_TTL_LLM
         )
 

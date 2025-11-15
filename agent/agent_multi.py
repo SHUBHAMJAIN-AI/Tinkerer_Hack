@@ -23,7 +23,8 @@ from utils import (
     update_agent_status,
     track_task,
     CacheManager,
-    redis_health_check
+    redis_health_check,
+    get_session_manager
 )
 from utils.llm_cache import initialize_llm_cache
 
@@ -88,6 +89,16 @@ async def chat_node(
         logger.info(f"📝 New session created: {session_id}")
     else:
         session_id = state["session_id"]
+    
+    # Get session manager for context handling
+    session_manager = get_session_manager()
+    
+    # Load conversation context for better understanding
+    context = session_manager.load_conversation_context(session_id)
+    contextual_prompt = session_manager.get_contextual_prompt_addition(session_id)
+    
+    # Update session activity
+    session_manager.update_session_activity(session_id)
 
     # 1. Define the model
     model = ChatOpenAI(model="gpt-4o", temperature=0.3)
@@ -119,6 +130,8 @@ async def chat_node(
 **Current Pipeline Status:**
 {_format_agent_status(state.get('agent_status', {}))}
 
+{contextual_prompt}
+
 **Available Tools:**
 - search_for_deals(query, max_price?, category?) - Search for product deals
 - extract_product_details(url) - Get detailed product information
@@ -134,6 +147,7 @@ async def chat_node(
 
 **Your Mission:**
 - Help users find the best deals with multi-agent intelligence
+- Use conversation context to understand references like "cheaper", "similar", "that product"
 - Use tools to search, then let the pipeline handle verification and ranking
 - Focus on major retailers: Amazon, eBay, Walmart, Target, Best Buy, Costco
 - Provide clear, actionable recommendations with source URLs
@@ -146,7 +160,7 @@ async def chat_node(
 4. Final answer synthesized by Synthesis Agent
 5. You receive the polished results to present
 
-Be helpful, accurate, and leverage your multi-agent capabilities!
+Be helpful, accurate, and leverage your multi-agent capabilities with conversation context!
 """
     )
 
@@ -160,8 +174,16 @@ Be helpful, accurate, and leverage your multi-agent capabilities!
     tool_calls = getattr(response, "tool_calls", None)
 
     if not tool_calls:
-        # No tool calls - return response and end
+        # No tool calls - save session and return response
         logger.info("📤 No tool calls, ending conversation")
+        
+        # Save conversation context and session
+        session_manager.save_conversation_context(
+            session_id, 
+            state["messages"] + [response]
+        )
+        session_manager.save_session(session_id, state)
+        
         return Command(
             goto=END,
             update={"messages": [response]}

@@ -17,7 +17,7 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import AgentState, update_agent_status, track_task, add_agent_error
+from utils import AgentState, update_agent_status, track_task, add_agent_error, get_session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +237,23 @@ async def synthesis_agent(
         final_answer_with_summary = answer + agent_summary
 
         logger.info(f"✅ Synthesis complete. Final answer: {len(answer)} chars")
+
+        # Save session context at completion of pipeline
+        session_id = state.get("session_id")
+        if session_id:
+            session_manager = get_session_manager()
+            
+            # Create context summary for future conversations
+            context_summary = f"User searched for '{query}' and found {len(ranked_results)} deals."
+            
+            # Save conversation context and session
+            session_manager.save_conversation_context(
+                session_id, 
+                state["messages"] + [final_message],
+                context_summary
+            )
+            session_manager.save_session(session_id, state)
+            logger.info(f"💾 Session context saved for {session_id}")
 
         # Prepare update with all results
         update_dict = {

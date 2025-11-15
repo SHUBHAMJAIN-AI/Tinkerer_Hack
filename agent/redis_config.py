@@ -71,10 +71,13 @@ def get_redis_connection_kwargs() -> dict:
         "max_connections": REDIS_MAX_CONNECTIONS,
     }
 
-    # Handle Redis Cloud SSL
+    # Handle Redis Cloud SSL with compatible configuration
     if REDIS_URL.startswith("rediss://"):
-        kwargs["ssl_cert_reqs"] = ssl.CERT_NONE
-        kwargs["ssl_check_hostname"] = False
+        kwargs.update({
+            "ssl_cert_reqs": ssl.CERT_NONE,
+            "ssl_check_hostname": False,
+            "ssl_ca_certs": None
+        })
 
     return kwargs
 
