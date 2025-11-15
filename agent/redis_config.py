@@ -62,22 +62,15 @@ RERANKING_MODEL = os.getenv("RERANKING_MODEL", "gpt-3.5-turbo")
 
 def get_redis_connection_kwargs() -> dict:
     """Get Redis connection kwargs for redis.from_url()"""
-    import ssl
-
+    
     kwargs = {
         "decode_responses": True,
         "socket_timeout": REDIS_SOCKET_TIMEOUT,
         "socket_connect_timeout": REDIS_SOCKET_CONNECT_TIMEOUT,
         "max_connections": REDIS_MAX_CONNECTIONS,
+        "retry_on_timeout": True,
+        "health_check_interval": 30,
     }
-
-    # Handle Redis Cloud SSL with compatible configuration
-    if REDIS_URL.startswith("rediss://"):
-        kwargs.update({
-            "ssl_cert_reqs": ssl.CERT_NONE,
-            "ssl_check_hostname": False,
-            "ssl_ca_certs": None
-        })
 
     return kwargs
 
