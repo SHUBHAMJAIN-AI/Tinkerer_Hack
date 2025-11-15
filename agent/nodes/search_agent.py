@@ -22,8 +22,9 @@ load_dotenv()
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import AgentState, update_agent_status, track_task, CacheManager, ResultParser
+from utils import AgentState, update_agent_status, track_task, CacheManager, ResultParser, get_deal_freshness_manager
 from redis_config import MAX_SEARCH_RESULTS, CACHE_TTL_SEARCH, CACHE_TTL_CRAWL
+from utils.cache_optimizer import get_cache_optimizer
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ tavily_search, tavily_extract, tavily_crawl = create_tavily_tools()
 def search_for_deals(query: str, max_price: float = None, category: str = None) -> str:
     """
     Search for deals and discounts on products across major e-commerce platforms.
-    Automatically caches results to improve performance.
+    Automatically caches results with 24-hour freshness validation.
 
     Args:
         query: Product name or description to search for
@@ -70,15 +71,51 @@ def search_for_deals(query: str, max_price: float = None, category: str = None) 
     Returns:
         Formatted search results with product details and prices
     """
-    # Check cache first
+    # Initialize cache components
     cache_manager = CacheManager()
+    cache_optimizer = get_cache_optimizer()
+    freshness_manager = get_deal_freshness_manager()
+    
     cache_key = f"{query}_{max_price}_{category}"
 
+    # Step 1: Check for exact cache hit with 24-hour freshness validation
     cached_results = cache_manager.get_cached_search(cache_key)
     if cached_results:
-        logger.info(f"✅ Using cached search results for: '{query}'")
-        return f"[CACHED] Deal search results for '{query}':\n\n{str(cached_results)}"
+        # Validate deal freshness (24-hour rule)
+        validity_check = freshness_manager.check_deals_validity(cached_results)
+        
+        if validity_check["valid"] and validity_check["action"] == "use_cache":
+            # Deals are fresh - use cached data
+            logger.info(f"✅ Fresh cache hit for '{query}' ({validity_check['age_hours']:.1f}h old)")
+            return f"[CACHED - FRESH] Deal search results for '{query}':\n\n{str(cached_results)}"
+        elif validity_check["action"] == "refresh_required":
+            # Deals are too old (>24h) - force refresh
+            logger.warning(f"⚠️ {validity_check['warning']} - Refreshing deals for '{query}'")
+            # Continue to fresh search below
+        else:
+            # Deals are approaching staleness but still usable
+            logger.info(f"💡 Using cached deals for '{query}' with warning: {validity_check.get('warning', 'None')}")
+            if validity_check.get('warning'):
+                return f"[CACHED - {validity_check['freshness_level'].upper()}] {validity_check['warning']}\n\nDeal search results for '{query}':\n\n{str(cached_results)}"
+            return f"[CACHED] Deal search results for '{query}':\n\n{str(cached_results)}"
 
+    # Step 2: Intelligent cache optimization with freshness check
+    optimization = cache_optimizer.optimize_query_execution(query, session_id="current")
+    
+    if optimization["cache_hit"]:
+        # Validate freshness of optimized cache
+        if optimization["cached_data"] and isinstance(optimization["cached_data"], dict):
+            validity_check = freshness_manager.check_deals_validity(optimization["cached_data"])
+            if validity_check["action"] != "refresh_required":
+                logger.info(f"🎯 Cache optimization hit for: '{query}'")
+                return f"[OPTIMIZED CACHE] Deal search results for '{query}':\n\n{str(optimization['cached_data'])}"
+    
+    if optimization["strategy"] == "similar_cache":
+        logger.info(f"🔄 Using similar cached results for: '{query}' (saved {optimization['estimated_time_saved']}s)")
+        similar_results = optimization["cached_data"]
+        return f"[SIMILAR CACHE] Deal search results for '{query}' (from similar search):\n\n{str(similar_results)}"
+
+    # Step 3: No valid cache - perform fresh search
     # Check if Tavily tools are available
     if tavily_search is None:
         return "Tavily API key not configured. Please set TAVILY_API_KEY environment variable to enable web search functionality."
@@ -114,13 +151,19 @@ def search_for_deals(query: str, max_price: float = None, category: str = None) 
                 "score": 50.0
             }]
         
-        # Cache the parsed results
-        cache_manager.cache_search_results(cache_key, parsed_results, ttl=CACHE_TTL_SEARCH)
+        # Add freshness metadata to results
+        parsed_results = freshness_manager.add_freshness_metadata(parsed_results, query)
+        
+        # Calculate optimal TTL based on query category and characteristics
+        optimal_ttl = freshness_manager.get_optimal_ttl(query, category)
+        
+        # Cache the parsed results with optimal TTL
+        cache_manager.cache_search_results(cache_key, parsed_results, ttl=optimal_ttl)
 
-        logger.info(f"✅ Found {len(parsed_results)} structured deals for '{query}'")
+        logger.info(f"✅ Found {len(parsed_results)} structured deals for '{query}' (cached with {optimal_ttl/3600:.1f}h TTL)")
         
         # Return structured results for consistency
-        return f"Deal search results for '{query}' ({len(parsed_results)} results):\n\n{str(parsed_results)}"
+        return f"[FRESH SEARCH] Deal search results for '{query}' ({len(parsed_results)} results):\n\n{str(parsed_results)}"
         
     except requests.exceptions.RequestException as e:
         logger.error(f"Network error during search for '{query}': {str(e)}")

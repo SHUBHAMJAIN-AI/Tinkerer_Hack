@@ -17,11 +17,16 @@ REDIS_SOCKET_TIMEOUT = int(os.getenv("REDIS_SOCKET_TIMEOUT", "5"))
 REDIS_SOCKET_CONNECT_TIMEOUT = int(os.getenv("REDIS_SOCKET_CONNECT_TIMEOUT", "5"))
 
 # Cache TTL Settings (in seconds)
-CACHE_TTL_SEARCH = int(os.getenv("REDIS_TTL_SEARCH", "3600"))  # 1 hour
-CACHE_TTL_CRAWL = int(os.getenv("REDIS_TTL_CRAWL", "21600"))  # 6 hours
+CACHE_TTL_SEARCH = int(os.getenv("REDIS_TTL_SEARCH", "86400"))  # 24 hours for deal freshness
+CACHE_TTL_CRAWL = int(os.getenv("REDIS_TTL_CRAWL", "43200"))  # 12 hours for product pages
 CACHE_TTL_SESSIONS = int(os.getenv("REDIS_TTL_SESSIONS", "86400"))  # 24 hours
 CACHE_TTL_USER_PREFS = int(os.getenv("REDIS_TTL_USER_PREFS", "604800"))  # 7 days
 CACHE_TTL_LLM = int(os.getenv("REDIS_TTL_LLM", "3600"))  # 1 hour for LLM responses
+
+# Deal-specific cache settings
+CACHE_TTL_DEALS_FRESH = 86400  # 24 hours - maximum age for deal data
+CACHE_TTL_DEALS_STALE_WARNING = 43200  # 12 hours - warn if deals might be stale
+CACHE_TTL_PRICE_SENSITIVE = 14400  # 4 hours - for price-sensitive searches
 
 # Redis Key Patterns
 KEY_PATTERN_SESSION = "session:{session_id}"
