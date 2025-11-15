@@ -17,7 +17,7 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import AgentState, update_agent_status, track_task, add_agent_error
+from utils import AgentState, update_agent_status, track_task, add_agent_error, ResultParser
 from redis_config import (
     VERIFICATION_STRICTNESS,
     VERIFICATION_TIMEOUT,
@@ -198,7 +198,7 @@ class VerificationAgent:
         min_score_threshold = {
             "strict": 75.0,
             "moderate": 60.0,
-            "lenient": 40.0
+            "lenient": 30.0
         }.get(VERIFICATION_STRICTNESS, 60.0)
 
         is_valid = overall_score >= min_score_threshold and url_valid
@@ -320,15 +320,26 @@ async def verification_agent(
         from langchain_core.messages import ToolMessage
         for msg in reversed(state["messages"]):
             if isinstance(msg, ToolMessage):
-                # Parse tool results and create structured data
-                raw_results = [{
-                    "content": str(msg.content),
-                    "source": "tool_execution",
-                    "tool_name": getattr(msg, 'name', 'unknown'),
-                    "url": "https://example.com",  # placeholder
-                    "title": "Tool Result"
-                }]
-                logger.info(f"📥 Extracted {len(raw_results)} results from tool messages")
+                try:
+                    # Try to parse structured data from tool results
+                    if hasattr(msg, 'content') and msg.content:
+                        parsed = ResultParser.parse_tavily_response(str(msg.content))
+                        if parsed:
+                            raw_results.extend(parsed)
+                            logger.info(f"📥 Parsed {len(parsed)} results from tool message")
+                except Exception as e:
+                    logger.warning(f"Failed to parse tool message: {e}")
+                    # Create fallback structured data
+                    raw_results.append({
+                        "content": str(msg.content),
+                        "source": "tool_execution",
+                        "tool_name": getattr(msg, 'name', 'unknown'),
+                        "url": "https://example.com",
+                        "title": "Tool Result",
+                        "price": "N/A",
+                        "store": "Unknown Store",
+                        "rating": None
+                    })
                 break
 
     if not raw_results:

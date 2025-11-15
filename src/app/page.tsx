@@ -264,7 +264,7 @@ function DealCard({ deal, themeColor }: { deal: any; themeColor: string }) {
       <div className="text-white">
         <h3 className="font-bold text-lg mb-2 line-clamp-2">{deal.title}</h3>
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-2xl font-bold text-green-300">{deal.price}</span>
+          <span className="text-2xl font-bold text-green-300">{deal.price || 'Price N/A'}</span>
           {deal.originalPrice && (
             <span className="text-sm line-through text-gray-300">{deal.originalPrice}</span>
           )}
@@ -293,9 +293,12 @@ function DealCard({ deal, themeColor }: { deal: any; themeColor: string }) {
 
 // Price Comparison Card Component
 function PriceComparisonCard({ comparison, themeColor }: { comparison: PriceComparison; themeColor: string }) {
-  const sortedPrices = comparison.prices.sort((a, b) => 
-    parseFloat(a.price.replace(/[^0-9.]/g, '')) - parseFloat(b.price.replace(/[^0-9.]/g, ''))
-  );
+  const sortedPrices = comparison.prices.sort((a, b) => {
+    // Handle null/undefined prices safely
+    const priceA = a.price ? parseFloat(a.price.replace(/[^0-9.]/g, '')) : 999999;
+    const priceB = b.price ? parseFloat(b.price.replace(/[^0-9.]/g, '')) : 999999;
+    return priceA - priceB;
+  });
 
   return (
     <div className="bg-white/15 backdrop-blur-sm p-4 rounded-xl">

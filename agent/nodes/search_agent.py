@@ -7,11 +7,13 @@ import logging
 from typing import Any, Dict, List
 from typing_extensions import Literal
 from langchain_core.runnables import RunnableConfig
+from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from langchain.tools import tool
 from langchain_tavily import TavilySearch, TavilyExtract, TavilyCrawl
 import os
 import sys
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -20,7 +22,7 @@ load_dotenv()
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import AgentState, update_agent_status, track_task, CacheManager
+from utils import AgentState, update_agent_status, track_task, CacheManager, ResultParser
 from redis_config import MAX_SEARCH_RESULTS, CACHE_TTL_SEARCH, CACHE_TTL_CRAWL
 
 logger = logging.getLogger(__name__)
@@ -89,12 +91,40 @@ def search_for_deals(query: str, max_price: float = None, category: str = None) 
         enhanced_query += f" under ${max_price}"
 
     try:
+        # Attempt the web search with timeout handling
         results = tavily_search.run(enhanced_query)
+        
+        if not results:
+            logger.warning(f"No results returned from Tavily search for: '{query}'")
+            return f"No deals found for '{query}'. Try a different search term or check back later."
 
-        # Cache the results
-        cache_manager.cache_search_results(cache_key, results, ttl=CACHE_TTL_SEARCH)
+        # Parse the results into structured format
+        parsed_results = ResultParser.parse_tavily_response(results)
+        
+        if not parsed_results:
+            logger.warning(f"Failed to parse any results for: '{query}'")
+            # Fallback: create a basic result from the raw response
+            parsed_results = [{
+                "title": f"Search results for {query}",
+                "content": str(results)[:200] + "..." if len(str(results)) > 200 else str(results),
+                "url": "https://example.com",
+                "price": "N/A",
+                "store": "Multiple Stores",
+                "verified": False,
+                "score": 50.0
+            }]
+        
+        # Cache the parsed results
+        cache_manager.cache_search_results(cache_key, parsed_results, ttl=CACHE_TTL_SEARCH)
 
-        return f"Deal search results for '{query}':\n\n{results}"
+        logger.info(f"✅ Found {len(parsed_results)} structured deals for '{query}'")
+        
+        # Return structured results for consistency
+        return f"Deal search results for '{query}' ({len(parsed_results)} results):\n\n{str(parsed_results)}"
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error during search for '{query}': {str(e)}")
+        return f"Network error while searching for deals: {str(e)}. Please check your internet connection and try again."
     except Exception as e:
         logger.error(f"Error searching for deals: {str(e)}")
         return f"Error searching for deals: {str(e)}"

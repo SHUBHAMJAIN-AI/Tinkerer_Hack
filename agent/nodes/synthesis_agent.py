@@ -60,8 +60,9 @@ class SynthesisAgent:
                 + (f"   - Original Price: {r.get('originalPrice', 'N/A')}, " if r.get('originalPrice') else "")
                 + (f"Discount: {r.get('discount', 'N/A')}\n" if r.get('discount') else "\n")
                 + f"   - Rating: {r.get('rating', 'N/A')}/5\n"
-                f"   - Score: {r.get('final_score', r.get('algorithmic_score', 0)):.1f}/100\n"
+                f"   - Score: {r.get('final_score', r.get('verification_score', r.get('score', 0))):.1f}/100\n"
                 f"   - URL: {r.get('url', 'N/A')}\n"
+                + (f"   - Content: {r.get('content', '')[:100]}...\n" if r.get('content') else "")
                 for i, r in enumerate(ranked_results[:5])  # Top 5 for context
             ])
 
@@ -119,7 +120,7 @@ Be enthusiastic but honest. Focus on helping the user make an informed decision.
             "store": result.get("store", "Unknown Store"),
             "rating": result.get("rating"),
             "image": result.get("image"),
-            "score": result.get("final_score", result.get("algorithmic_score", 0)),
+            "score": result.get("final_score", result.get("verification_score", result.get("score", 0))),
             "verified": result.get("verified", True),
         }
 

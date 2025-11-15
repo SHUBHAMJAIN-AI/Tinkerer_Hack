@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Tuple
 from typing_extensions import Literal
 from langchain_core.runnables import RunnableConfig
+from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.types import Command
 import sys
@@ -285,10 +286,13 @@ Keep boosts between -20 and +20."""
                     boost = float(match.group(2))
                     reason = match.group(3).strip()
 
-                    # Clamp boost to -20 to +20
-                    boost = max(-20, min(20, boost))
-
-                    adjustments.append((idx, boost, reason))
+                    # Validate index is within bounds
+                    if 0 <= idx < len(results):
+                        # Clamp boost to -20 to +20
+                        boost = max(-20, min(20, boost))
+                        adjustments.append((idx, boost, reason))
+                    else:
+                        logger.warning(f"⚠️  LLM suggested invalid index {idx+1}, skipping (max results: {len(results)})")
 
             logger.info(f"✅ LLM provided {len(adjustments)} ranking adjustments")
             return adjustments
@@ -362,9 +366,8 @@ Keep boosts between -20 and +20."""
                     scored_results[idx]["llm_reason"] = reason
                     scored_results[idx]["final_score"] = scored_results[idx]["algorithmic_score"] + boost
                 else:
-                    scored_results[idx]["llm_boost"] = 0
-                    scored_results[idx]["llm_reason"] = "No LLM adjustment"
-                    scored_results[idx]["final_score"] = scored_results[idx]["algorithmic_score"]
+                    # Skip invalid indices
+                    logger.warning(f"⚠️  Skipping invalid LLM adjustment index: {idx} (max: {len(scored_results)-1})")
 
             # Ensure all results have final_score
             for result in scored_results:
