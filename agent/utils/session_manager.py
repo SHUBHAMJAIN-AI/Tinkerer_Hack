@@ -28,6 +28,10 @@ class SessionManager:
         """Generate Redis key for conversation context"""
         return f"context:{session_id}"
     
+    def _get_results_key(self, session_id: str) -> str:
+        """Generate Redis key for numbered results"""
+        return f"results:{session_id}"
+    
     def save_session(self, session_id: str, state: Dict[str, Any]) -> bool:
         """
         Save session state to Redis
@@ -233,6 +237,123 @@ class SessionManager:
             logger.error(f"❌ Failed to update session activity: {str(e)}")
             
         return False
+    
+    def save_numbered_results(self, session_id: str, results: List[Dict[str, Any]]) -> bool:
+        """
+        Save numbered search results to session
+        
+        Args:
+            session_id: Unique session identifier
+            results: List of product results with numbering
+            
+        Returns:
+            True if saved successfully
+        """
+        if not ENABLE_SESSION_PERSISTENCE or not self.redis_client:
+            return False
+        
+        try:
+            results_key = self._get_results_key(session_id)
+            
+            # Create numbered mapping
+            numbered_results = {}
+            product_name_map = {}
+            product_attribute_map = {}
+            
+            for result in results:
+                num = result.get('result_number')
+                if num:
+                    num_str = str(num)
+                    numbered_results[num_str] = result
+                    
+                    # Map clean name to number
+                    clean_name = result.get('clean_name', '').lower()
+                    if clean_name:
+                        product_name_map[clean_name] = num_str
+                    
+                    # Map attributes to numbers
+                    descriptors = result.get('descriptors', {})
+                    for attr, value in descriptors.items():
+                        value_lower = str(value).lower()
+                        if value_lower not in product_attribute_map:
+                            product_attribute_map[value_lower] = []
+                        product_attribute_map[value_lower].append(num_str)
+                    
+                    # Map store to number
+                    store = result.get('store', '').lower()
+                    if store and store != 'unknown store':
+                        if store not in product_attribute_map:
+                            product_attribute_map[store] = []
+                        product_attribute_map[store].append(num_str)
+            
+            # Save comprehensive results data
+            results_data = {
+                "numbered_results": numbered_results,
+                "product_name_map": product_name_map,
+                "product_attribute_map": product_attribute_map,
+                "total_results": len(numbered_results),
+                "saved_at": datetime.now().isoformat()
+            }
+            
+            self.redis_client.setex(
+                results_key,
+                self.ttl,
+                json.dumps(results_data)
+            )
+            
+            logger.info(f"📊 Saved {len(numbered_results)} numbered results for session {session_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to save numbered results: {e}")
+            return False
+    
+    def get_numbered_results(self, session_id: str) -> Optional[Dict[str, Dict]]:
+        """
+        Get numbered results from session
+        
+        Returns:
+            Dict mapping numbers to product data, or None
+        """
+        if not ENABLE_SESSION_PERSISTENCE or not self.redis_client:
+            return None
+        
+        try:
+            results_key = self._get_results_key(session_id)
+            results_data = self.redis_client.get(results_key)
+            
+            if results_data:
+                data = json.loads(results_data)
+                return data.get("numbered_results", {})
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to get numbered results: {e}")
+        
+        return None
+    
+    def get_product_by_number(self, session_id: str, number: int) -> Optional[Dict]:
+        """Get specific product by number"""
+        results = self.get_numbered_results(session_id)
+        if results:
+            return results.get(str(number))
+        return None
+    
+    def get_all_results_data(self, session_id: str) -> Optional[Dict]:
+        """Get complete results data including mappings"""
+        if not ENABLE_SESSION_PERSISTENCE or not self.redis_client:
+            return None
+        
+        try:
+            results_key = self._get_results_key(session_id)
+            results_data = self.redis_client.get(results_key)
+            
+            if results_data:
+                return json.loads(results_data)
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to get results data: {e}")
+        
+        return None
     
     def _extract_topics_from_messages(self, messages: List[Any]) -> List[str]:
         """Extract key topics from conversation messages"""

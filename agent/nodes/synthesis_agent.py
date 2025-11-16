@@ -52,9 +52,9 @@ class SynthesisAgent:
         try:
             model = ChatOpenAI(model="gpt-4o", temperature=0.3)
 
-            # Prepare results for context
+            # Prepare results for context with numbered references
             results_context = "\n".join([
-                f"{i+1}. **{r.get('title', 'Unknown Product')}**\n"
+                f"#{r.get('result_number', i+1)}. **{r.get('clean_name') or r.get('title', 'Unknown Product')}**\n"
                 f"   - Price: {r.get('price', 'N/A')}\n"
                 f"   - Store: {r.get('store', 'Unknown')}\n"
                 + (f"   - Original Price: {r.get('originalPrice', 'N/A')}, " if r.get('originalPrice') else "")
@@ -62,6 +62,7 @@ class SynthesisAgent:
                 + f"   - Rating: {r.get('rating', 'N/A')}/5\n"
                 f"   - Score: {r.get('final_score', r.get('verification_score', r.get('score', 0))):.1f}/100\n"
                 f"   - URL: {r.get('url', 'N/A')}\n"
+                + (f"   - Keywords: {', '.join(r.get('keywords', [])[:5])}\n" if r.get('keywords') else "")
                 + (f"   - Content: {r.get('content', '')[:100]}...\n" if r.get('content') else "")
                 for i, r in enumerate(ranked_results[:5])  # Top 5 for context
             ])
@@ -70,15 +71,16 @@ class SynthesisAgent:
 
 User Query: "{query}"
 
-Top Deals Found:
+Top Deals Found (numbered for easy reference):
 {results_context}
 
 Verification Summary: {verification_summary}
 Ranking Summary: {reranking_summary}
 
 Generate a helpful response that:
-1. Summarizes the best deals found (top 3-5)
+1. Summarizes the best deals found (top 3-5) using their numbers (e.g., "#1", "#2")
 2. Highlights key value propositions (best price, highest rating, best discount)
+3. **IMPORTANT**: Include product numbers in your summary so users can ask follow-up questions like "Tell me more about #2"
 3. Provides actionable recommendations
 4. Mentions any important caveats or considerations
 5. Is concise but informative (2-3 paragraphs max)
@@ -103,7 +105,7 @@ Be enthusiastic but honest. Focus on helping the user make an informed decision.
     @staticmethod
     def format_deal_for_frontend(result: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Format a result for frontend display
+        Format a result for frontend display with numbered reference
 
         Args:
             result: Result dictionary
@@ -112,7 +114,10 @@ Be enthusiastic but honest. Focus on helping the user make an informed decision.
             Formatted deal for frontend
         """
         return {
+            "resultNumber": result.get("result_number"),  # Add number for reference
+            "resultId": result.get("result_id"),  # Add unique ID
             "title": result.get("title", "Unknown Product"),
+            "cleanName": result.get("clean_name"),  # Add clean name
             "price": result.get("price", "N/A"),
             "originalPrice": result.get("originalPrice"),
             "discount": result.get("discount"),
@@ -122,6 +127,8 @@ Be enthusiastic but honest. Focus on helping the user make an informed decision.
             "image": result.get("image"),
             "score": result.get("final_score", result.get("verification_score", result.get("score", 0))),
             "verified": result.get("verified", True),
+            "keywords": result.get("keywords", []),  # Add keywords for search
+            "descriptors": result.get("descriptors", {}),  # Add descriptors
         }
 
     @staticmethod
@@ -242,6 +249,10 @@ async def synthesis_agent(
         session_id = state.get("session_id")
         if session_id:
             session_manager = get_session_manager()
+            
+            # Save numbered results for product queries
+            session_manager.save_numbered_results(session_id, ranked_results)
+            logger.info(f"💾 Saved {len(ranked_results)} numbered results to session")
             
             # Create context summary for future conversations
             context_summary = f"User searched for '{query}' and found {len(ranked_results)} deals."

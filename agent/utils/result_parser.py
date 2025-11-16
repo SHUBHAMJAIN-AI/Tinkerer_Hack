@@ -132,8 +132,93 @@ class ResultParser:
             return "Unknown Store"
     
     @staticmethod
-    def parse_tavily_result(result: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse a single Tavily search result into structured deal format"""
+    def extract_product_name(title: str) -> str:
+        """Extract clean product name from title"""
+        # Remove common suffixes and prefixes
+        clean = title.strip()
+        
+        # Remove store names
+        store_prefixes = ['Amazon.com', 'Best Buy', 'Walmart', 'Target', 'eBay']
+        for prefix in store_prefixes:
+            if clean.startswith(prefix):
+                clean = clean.replace(prefix, '').strip(' :-')
+        
+        # Remove trailing junk
+        clean = re.sub(r'\s*[-|]\s*Amazon\.com$', '', clean)
+        clean = re.sub(r'\s*\(.*?\)$', '', clean)  # Remove trailing parentheses
+        
+        return clean
+    
+    @staticmethod
+    def extract_keywords(title: str, content: str) -> List[str]:
+        """Extract searchable keywords from title and content"""
+        text = f"{title} {content}".lower()
+        
+        # Remove common words
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+                     'with', 'from', 'of', 'is', 'are', 'was', 'were', 'be', 'been'}
+        
+        # Extract words (alphanumeric sequences)
+        words = re.findall(r'\b\w+\b', text)
+        keywords = [w for w in words if w not in stop_words and len(w) > 2]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_keywords = []
+        for kw in keywords:
+            if kw not in seen:
+                seen.add(kw)
+                unique_keywords.append(kw)
+        
+        return unique_keywords[:20]  # Limit to top 20
+    
+    @staticmethod
+    def extract_descriptors(title: str, content: str, price: str, store: str) -> Dict[str, Any]:
+        """Extract product descriptors for matching"""
+        descriptors = {}
+        text = f"{title} {content}".lower()
+        
+        # Color extraction
+        colors = ['black', 'white', 'silver', 'gold', 'rose', 'blue', 'red', 'green', 
+                 'pink', 'purple', 'yellow', 'titanium', 'gray', 'grey', 'bronze']
+        for color in colors:
+            if color in text:
+                descriptors['color'] = color.title()
+                break
+        
+        # Storage extraction
+        storage_pattern = r'(\d+)(gb|tb)'
+        storage_match = re.search(storage_pattern, text, re.IGNORECASE)
+        if storage_match:
+            descriptors['storage'] = f"{storage_match.group(1)}{storage_match.group(2).upper()}"
+        
+        # Condition
+        if any(word in text for word in ['refurbished', 'renewed', 'used', 'open box']):
+            descriptors['condition'] = 'Refurbished'
+        else:
+            descriptors['condition'] = 'New'
+        
+        # Price tier
+        if price and price != 'N/A':
+            try:
+                price_val = float(price.replace('$', '').replace(',', ''))
+                if price_val < 100:
+                    descriptors['price_tier'] = 'budget'
+                elif price_val < 500:
+                    descriptors['price_tier'] = 'mid-range'
+                else:
+                    descriptors['price_tier'] = 'premium'
+            except:
+                pass
+        
+        # Store
+        descriptors['store'] = store
+        
+        return descriptors
+    
+    @staticmethod
+    def parse_tavily_result(result: Dict[str, Any], result_number: int = None) -> Dict[str, Any]:
+        """Parse a single Tavily search result into structured deal format with numbering"""
         try:
             url = result.get('url', '')
             title = result.get('title', 'Unknown Product')
@@ -146,16 +231,28 @@ class ResultParser:
             rating = ResultParser.extract_rating_from_content(content)
             store = ResultParser.extract_store_from_url(url)
             
-            # Clean up title (remove common prefixes/suffixes)
-            clean_title = title.strip()
-            if clean_title.startswith('Amazon.com'):
-                clean_title = clean_title.replace('Amazon.com', '').strip(' :-')
+            # Clean up title
+            clean_title = ResultParser.extract_product_name(title)
+            
+            # NEW: Extract product name and metadata
+            clean_name = clean_title.split('-')[0].strip() if '-' in clean_title else clean_title
+            keywords = ResultParser.extract_keywords(clean_title, content)
+            descriptors = ResultParser.extract_descriptors(clean_title, content, price or 'N/A', store)
+            
+            # Generate unique result ID
+            import hashlib
+            result_id = hashlib.md5(f"{url}{clean_title}".encode()).hexdigest()[:12]
             
             return {
+                'result_number': result_number,  # NEW: Sequential number
+                'result_id': result_id,  # NEW: Unique identifier
                 'title': clean_title,
+                'clean_name': clean_name,  # NEW: Extracted clean name
+                'keywords': keywords,  # NEW: Searchable keywords
+                'descriptors': descriptors,  # NEW: Color, storage, condition, etc.
                 'url': url,
-                'price': price or 'N/A',  # Ensure price is never None
-                'originalPrice': None,  # Would need more sophisticated extraction
+                'price': price or 'N/A',
+                'originalPrice': None,
                 'discount': discount,
                 'store': store,
                 'rating': rating,
@@ -163,7 +260,7 @@ class ResultParser:
                 'score': score,
                 'source': 'tavily',
                 'verified': True,
-                'image': None,  # Not typically available in Tavily results
+                'image': None,
             }
             
         except Exception as e:
@@ -180,7 +277,7 @@ class ResultParser:
     
     @staticmethod
     def parse_tavily_response(response: str) -> List[Dict[str, Any]]:
-        """Parse full Tavily API response into structured deals list"""
+        """Parse full Tavily API response into structured deals list with numbering"""
         try:
             # Handle string responses that contain the actual data
             if isinstance(response, str):
@@ -212,7 +309,11 @@ class ResultParser:
                                         # Try to safely evaluate as Python literal
                                         results_data = ast.literal_eval(results_str)
                                         if isinstance(results_data, list):
-                                            return [ResultParser.parse_tavily_result(item) for item in results_data]
+                                            # NEW: Add sequential numbering
+                                            return [
+                                                ResultParser.parse_tavily_result(item, idx + 1) 
+                                                for idx, item in enumerate(results_data)
+                                            ]
                                     except:
                                         pass
                                     break
@@ -221,7 +322,12 @@ class ResultParser:
             # Fallback: create a single result from the raw response
             logger.warning("Could not parse Tavily response structure, creating fallback result")
             return [{
+                'result_number': 1,
+                'result_id': 'fallback_001',
                 'title': 'Search Results',
+                'clean_name': 'Search Results',
+                'keywords': [],
+                'descriptors': {},
                 'url': 'https://example.com',
                 'price': 'N/A',
                 'store': 'Unknown Store',
@@ -233,7 +339,12 @@ class ResultParser:
         except Exception as e:
             logger.error(f"Error parsing Tavily response: {e}")
             return [{
+                'result_number': 1,
+                'result_id': 'error_001',
                 'title': 'Error Processing Results',
+                'clean_name': 'Error',
+                'keywords': [],
+                'descriptors': {},
                 'url': 'https://example.com',
                 'price': 'N/A',
                 'store': 'Unknown Store',

@@ -91,7 +91,6 @@ def is_product_query(query: str, session_id: str = None) -> bool:
         r'#\d+',  # #1, #2, etc.
         r'\bproduct\s+\d+',  # product 1, product 2
         r'\bnumber\s+\d+',  # number 1, number 2
-        r'\bdeal\s+\d+',  # deal 1, deal 2, deal 3
         r'\bfirst\s+one\b',  # first one
         r'\bsecond\s+one\b',  # second one
         r'\bthird\s+one\b',  # third one
@@ -260,7 +259,47 @@ async def chat_node(
 5. User can then ask follow-up questions about specific products by number or name
 6. Product Detail Agent handles product-specific queries with fact verification
 
-Be helpful, accurate, and leverage your multi-agent capabilities with conversation context!"""
+Be helpful, accurate, and leverage your multi-agent capabilities with conversation context!
+"""
+    )
+3. 🔄 **Reranking Agent** - Intelligently orders results by relevance (hybrid AI)
+4. 🎨 **Synthesis Agent** - Generates comprehensive answers and recommendations
+
+**Current Pipeline Status:**
+{_format_agent_status(state.get('agent_status', {}))}
+
+{contextual_prompt}
+
+**Available Tools:**
+- search_for_deals(query, max_price?, category?) - Search for product deals
+- extract_product_details(url) - Get detailed product information
+- crawl_store_catalog(store_url, category?) - Explore store catalogs
+- compare_prices(product_name) - Compare prices across platforms
+
+**Frontend Actions** (for UI updates):
+- setThemeColor - Change UI theme
+- addDeal - Add deal to UI
+- show_deal_card - Display deal card
+- addPriceComparison - Show price comparison
+- addProverb - Add shopping wisdom
+
+**Your Mission:**
+- Help users find the best deals with multi-agent intelligence
+- Use conversation context to understand references like "cheaper", "similar", "that product"
+- Use tools to search, then let the pipeline handle verification and ranking
+- Focus on major retailers: Amazon, eBay, Walmart, Target, Best Buy, Costco
+- Provide clear, actionable recommendations with source URLs
+- Leverage caching for faster responses
+
+**Workflow:**
+1. When user asks for deals → Use search tools
+2. Results automatically verified by Verification Agent
+3. Results automatically ranked by Reranking Agent
+4. Final answer synthesized by Synthesis Agent
+5. You receive the polished results to present
+
+Be helpful, accurate, and leverage your multi-agent capabilities with conversation context!
+"""
     )
 
     # 4. Run the model
